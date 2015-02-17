@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Diagnostics;
+using System.IO;
 using System.Net.Http;
 using System.Reactive.Linq;
-using System.Text;
 using System.Threading.Tasks;
 using Akavache;
 using Splat;
@@ -15,54 +15,63 @@ namespace SplatImageProblemExample
         static void Main(string[] args)
         {
             BlobCache.ApplicationName = "SplatImageProblemExample";
-            RunTest().Wait();
+            //RunTest(BlobCache.LocalMachine).Wait();
+            RunTest2(BlobCache.LocalMachine).Wait();
             Console.WriteLine("Test Complete. Hit a key to quit.");
             Console.ReadKey();
         }
 
-        static async Task RunTest()
+        static async Task RunTest(IBlobCache cache)
         {
-            Console.WriteLine("Starting caching test...");
+            await cache.InvalidateAll();
 
-            Console.WriteLine("Requesting the image for the first time");
             var url = "http://lacuadramagazine.com/wp-content/uploads/sangeh-monkey-forest-101.jpg";
-            var image1 = await GetImage(url);
-            Console.WriteLine(string.Format("Image received was ({0}, {1})", image1.Width, image1.Height));
 
-            Console.WriteLine("Requesting the image for the second time");
-            var image2 = await GetImage(url);
-            await GetImage(url);
-            Console.WriteLine(string.Format("Image received was ({0}, {1})", image2.Width, image2.Height));
+            // on first pass, we know the image is not cached
+            var image1 = await GetImage(cache, url);
+            Debug.Assert(image1 == null);
+
+            // second time, we must get it from the cache
+            var image2 = await GetImage(cache, url);
+            Debug.Assert(image2 != null);
         }
 
-        static async Task<IBitmap> GetImage2(string url)
+        static async Task RunTest2(IBlobCache cache)
         {
-            return await BlobCache.LocalMachine.LoadImageFromUrl(url);
+            await cache.InvalidateAll();
+
+            var url = "http://lacuadramagazine.com/wp-content/uploads/sangeh-monkey-forest-101.jpg";
+            var key = "demo2-" + url;
+            // on first pass, we'll hit the network
+            var image1 = await cache.LoadImageFromUrl(key, url);
+            Debug.Assert(image1 != null);
+
+            // second time, we must get it from the cache
+            var image2 = await cache.LoadImageFromUrl(key, url);
+            Debug.Assert(image2 != null);
         }
 
-        static async Task<IBitmap> GetImage(string url)
+        static async Task<IBitmap> GetImage(IBlobCache cache, string url)
         {
-            IBitmap image;
+            IBitmap image = null;
             try
             {
-                // get the image from the cache if it exists...
-                image = await BlobCache.LocalMachine.GetObject<IBitmap>(url);
-                Console.WriteLine("Image being returned from the cache");
+                var bytes = await cache.Get(url);
+                image = await BitmapLoader.Current.Load(new MemoryStream(bytes), null, null);
+                Console.WriteLine("Image returned from cache ({0}, {1})", image.Width, image.Height);
             }
             catch (KeyNotFoundException)
             {
                 Console.WriteLine("Image not found in the cache, making network request");
-                image = null;
             }
-            if (image != null)
-                return image;
 
-            var client = new HttpClient();
-            var response = await client.GetAsync(url);
-            var stream = await response.Content.ReadAsStreamAsync();
-            image = await BitmapLoader.Current.Load(stream, null, null);
-
-            await BlobCache.LocalMachine.InsertObject(url, image, null);
+            if (image == null)
+            {
+                var client = new HttpClient();
+                var response = await client.GetAsync(url);
+                var newBytes = await response.Content.ReadAsByteArrayAsync();
+                await cache.Insert(url, newBytes);
+            }
 
             return image;
         }

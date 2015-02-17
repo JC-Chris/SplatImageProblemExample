@@ -2,10 +2,8 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Net.Http;
 using System.Reactive.Linq;
-using System.Text;
 using System.Threading.Tasks;
 using Akavache;
 using Splat;
@@ -17,7 +15,8 @@ namespace SplatImageProblemExample
         static void Main(string[] args)
         {
             BlobCache.ApplicationName = "SplatImageProblemExample";
-            RunTest(BlobCache.LocalMachine).Wait();
+            //RunTest(BlobCache.LocalMachine).Wait();
+            RunTest2(BlobCache.LocalMachine).Wait();
             Console.WriteLine("Test Complete. Hit a key to quit.");
             Console.ReadKey();
         }
@@ -34,6 +33,21 @@ namespace SplatImageProblemExample
 
             // second time, we must get it from the cache
             var image2 = await GetImage(cache, url);
+            Debug.Assert(image2 != null);
+        }
+
+        static async Task RunTest2(IBlobCache cache)
+        {
+            await cache.InvalidateAll();
+
+            var url = "http://lacuadramagazine.com/wp-content/uploads/sangeh-monkey-forest-101.jpg";
+            var key = "demo2-" + url;
+            // on first pass, we'll hit the network
+            var image1 = await cache.LoadImageFromUrl(key, url);
+            Debug.Assert(image1 != null);
+
+            // second time, we must get it from the cache
+            var image2 = await cache.LoadImageFromUrl(key, url);
             Debug.Assert(image2 != null);
         }
 
